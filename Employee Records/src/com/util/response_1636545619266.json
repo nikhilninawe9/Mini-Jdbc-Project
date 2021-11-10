@@ -1,0 +1,590 @@
+package com.micropro.enam.pop.common;
+
+import java.io.File;
+import java.io.IOException;
+import java.math.BigDecimal;
+import java.net.URL;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.sql.CallableStatement;
+import java.sql.Connection;
+import java.sql.PreparedStatement;
+import java.sql.SQLException;
+import java.sql.Timestamp;
+import java.sql.Types;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+
+import javax.servlet.http.HttpServletRequest;
+
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.jdbc.core.CallableStatementCreator;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.core.PreparedStatementCreator;
+import org.springframework.jdbc.core.SqlOutParameter;
+import org.springframework.jdbc.core.SqlParameter;
+import org.springframework.jdbc.support.GeneratedKeyHolder;
+import org.springframework.jdbc.support.KeyHolder;
+import org.springframework.jdbc.support.rowset.SqlRowSet;
+import org.springframework.stereotype.Component;
+
+import com.google.gson.JsonArray;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
+import com.micropro.custom.services.CustomService;
+import com.zaxxer.hikari.HikariDataSource;
+import com.zaxxer.hikari.HikariPoolMXBean;
+
+/**
+ * Connection logic to execute queries by using connection pool<p>
+ * This file is safe to edit.
+ * 
+ * @author Kushal Kadu
+ */
+@Component
+public class ConnectionUtility extends CustomService {
+
+	@Value("${spring.datasource.url}")
+	private String uri;
+
+	@Value("${spring.datasource.username}")
+	private String username;
+
+	@Value("${spring.datasource.password}")
+	private String password;
+
+	@Autowired
+	private JdbcTemplate jdbcTemplate;
+
+	@Autowired
+	private HikariDataSource hikari;
+
+	public String getConnectionUrl() {
+		return this.uri;
+	}
+
+	@Override
+	public Connection getConnection() {
+		try {
+			return jdbcTemplate.getDataSource().getConnection();
+		} catch (SQLException e) {
+			e.printStackTrace();
+		}
+
+		return null;
+	}
+
+	public int getActiveConnectionCount() {
+		HikariPoolMXBean bean = hikari.getHikariPoolMXBean();
+
+		if (bean == null) {
+			return 0;
+		} else {
+			return bean.getActiveConnections();
+		}
+	}
+
+	public int getIdleConnectionCount() {
+		HikariPoolMXBean bean = hikari.getHikariPoolMXBean();
+
+		if (bean == null) {
+			return 0;
+		} else {
+			return bean.getIdleConnections();
+		}
+	}
+
+	public int getTotalConnectionCount() {
+		HikariPoolMXBean bean = hikari.getHikariPoolMXBean();
+
+		if (bean == null) {
+			return 0;
+		} else {
+			return bean.getTotalConnections();
+		}
+	}
+
+	public int executeDMLQueryOnPool(String query, Object[] params) {
+		
+		try {
+			return jdbcTemplate.update(query, params);
+		} catch (Exception ex) {
+			ex.printStackTrace();
+		}
+
+		return 0;
+	}
+
+	public JsonArray executeQueryOnPool(String query, HttpServletRequest request) {
+		JsonArray data = new JsonArray();
+		try {
+			SqlRowSet rowSet = jdbcTemplate.queryForRowSet(query, new Object[] {});
+
+			int columns = rowSet.getMetaData().getColumnCount();
+
+			while (rowSet.next()) {
+				JsonObject obj = new JsonObject();
+				for (int i = 1; i <= columns; i++) {
+					String columnName = rowSet.getMetaData().getColumnLabel(i);
+
+					if (rowSet.getObject(columnName) instanceof byte[]) {
+						String value = new String((byte[]) rowSet.getObject(columnName));
+						obj.addProperty(columnName.toLowerCase(), value);
+					} else if (rowSet.getObject(columnName) instanceof Long) {
+						obj.addProperty(columnName.toLowerCase(), rowSet.getLong(columnName));
+					} else if (rowSet.getObject(columnName) instanceof Integer) {
+						obj.addProperty(columnName.toLowerCase(), rowSet.getInt(columnName));
+					} else if (rowSet.getObject(columnName) instanceof BigDecimal) {
+						obj.addProperty(columnName.toLowerCase(), rowSet.getBigDecimal(columnName));
+					} else if (rowSet.getObject(columnName) instanceof Timestamp) {
+						String date = rowSet.getString(columnName);
+						obj.addProperty(columnName.toLowerCase(), date.contains(".") ? date.substring(0, date.indexOf(".")) : date);
+					} else {
+						obj.addProperty(columnName.toLowerCase(), rowSet.getString(columnName));
+					}
+				}
+
+				data.add(obj);
+			}
+		} catch (Exception ex) {
+			ex.printStackTrace();
+		}
+
+		return data;
+	}
+
+	public JsonArray executeQueryApiOnPool(String query) {
+		JsonArray data = new JsonArray();
+		try {
+			SqlRowSet rowSet = jdbcTemplate.queryForRowSet(query, new Object[] {});
+
+			int columns = rowSet.getMetaData().getColumnCount();
+
+			while (rowSet.next()) {
+				JsonObject obj = new JsonObject();
+				for (int i = 1; i <= columns; i++) {
+					String columnName = rowSet.getMetaData().getColumnLabel(i);
+
+					if (rowSet.getObject(columnName) instanceof byte[]) {
+						String value = new String((byte[]) rowSet.getObject(columnName));
+						obj.addProperty(columnName.toLowerCase(), value);
+					} else if (rowSet.getObject(columnName) instanceof Long) {
+						obj.addProperty(columnName.toLowerCase(), rowSet.getLong(columnName));
+					} else if (rowSet.getObject(columnName) instanceof Integer) {
+						obj.addProperty(columnName.toLowerCase(), rowSet.getInt(columnName));
+					} else if (rowSet.getObject(columnName) instanceof BigDecimal) {
+						obj.addProperty(columnName.toLowerCase(), rowSet.getBigDecimal(columnName));
+					} else if (rowSet.getObject(columnName) instanceof Timestamp) {
+						String date = rowSet.getString(columnName);
+						obj.addProperty(columnName.toLowerCase(), date.contains(".") ? date.substring(0, date.indexOf(".")) : date);
+					} else {
+						String result = rowSet.getString(columnName);
+						if (result != null && result.trim().length() > 0) {
+							result = result.trim();
+							if (result.charAt(0) == '{' || result.charAt(0) == '[') {
+								obj.add(columnName.toLowerCase(), JsonParser.parseString(result));
+							} else {
+								obj.addProperty(columnName.toLowerCase(), result);
+							}
+						} else {
+							obj.addProperty(columnName.toLowerCase(), result);
+						}
+					}
+				}
+
+				data.add(obj);
+			}
+		} catch (Exception ex) {
+			ex.printStackTrace();
+		}
+
+		return data;
+	}
+
+	public String executeIdGenerationProcedure(String orgId, String oprId, String rightId, String token, String url) {
+		JsonObject response = new JsonObject();
+		List<SqlParameter> paramList = new ArrayList<>();
+
+		SqlParameter orgIdParam = new SqlParameter(Types.VARCHAR);
+		SqlParameter oprIdParam = new SqlParameter(Types.VARCHAR);
+		SqlParameter rightIdParam = new SqlParameter(Types.VARCHAR);
+		SqlOutParameter idParameter = new SqlOutParameter("id", Types.VARCHAR);
+
+		paramList = new ArrayList<>();
+		paramList.add(orgIdParam);
+		paramList.add(oprIdParam);
+		paramList.add(rightIdParam);
+		paramList.add(idParameter);
+
+		final String procedureCall = "{call getMaxNoInternal(?,?,?,?)}";
+		try {
+			Map<String, Object> resultMap = jdbcTemplate.call(new CallableStatementCreator() {
+
+				@Override
+				public CallableStatement createCallableStatement(Connection connection)
+				throws SQLException {
+
+					CallableStatement callableStatement = connection.prepareCall(procedureCall);
+					callableStatement.setString(1, orgId);
+					callableStatement.setString(2, oprId);
+					callableStatement.setString(3, rightId);
+					callableStatement.registerOutParameter(4, Types.VARCHAR);
+					return callableStatement;
+				}
+			}, paramList);
+			response.addProperty("code", 200);
+			response.addProperty("status", "Success");
+			response.addProperty("id", resultMap.get("id") == null ? "0" : resultMap.get("id").toString());
+		} catch (Exception ex) {
+			insertExceptionLog(rightId, token, null, ex.getMessage(), url, null, null, null);
+			throw new ServerSideException(ex.getMessage());
+		}
+
+		return response.toString();
+	}
+
+	public long executeCustomDML(String tableName, String pkColumn, JsonObject body, JsonObject where, 
+			String operation) {
+		boolean whereFlag = false;
+		if (where != null) {
+			if (!where.isJsonNull() && where.keySet().size() > 0) {
+				whereFlag = true;
+			}
+		}
+
+		if (operation.equals("INSERT")) {
+			String query = "INSERT INTO " + tableName + " (";
+
+			Set<String> columns = body.keySet();
+			Object[] params = new Object[columns.size()];
+
+			int count = 0;
+			StringBuilder parameters = new StringBuilder();
+			StringBuilder values = new StringBuilder();
+			for (String column : columns) {
+				parameters.append(column);
+				values.append("?");
+				params[count] = body.get(column).isJsonNull() ? null : body.get(column).getAsString();
+
+				if (count < (columns.size() - 1)) {
+					parameters.append(",");
+					values.append(",");
+				}
+
+				count++;
+			}
+
+			query = query + parameters.toString() + ") VALUES (" + values.toString() + ")";
+
+			if (!pkColumn.equals(tableName + "id")) {
+				int rowAffected = executeDMLQueryOnPool(query, params);
+
+				if (rowAffected > 0)
+					return body.get(pkColumn).getAsLong();
+				else
+					return rowAffected;
+			} else {
+				return executeDMLToGetId(query, params, pkColumn);
+			}
+		} else if (operation.equals("UPDATE")) {
+			String query = "UPDATE " + tableName + " SET ";
+
+			int count = 0;
+			Long primaryKey = 0L;
+			StringBuilder parameters = new StringBuilder();
+			StringBuilder whereParameters = new StringBuilder();
+
+			if (body.has(pkColumn)) {
+				primaryKey = body.get(pkColumn).getAsLong();
+				body.remove(pkColumn);
+			}
+
+			if (whereFlag) {
+				Set<String> whereColumns = where.keySet();
+				for (String column : whereColumns) {
+					body.remove(column);
+				}
+			}
+
+			Set<String> columns = body.keySet();
+			Object[] params = null;
+			if (whereFlag) {
+				params = new Object[columns.size() + where.keySet().size()];
+			} else {
+				params = new Object[columns.size() + 1];
+			}
+
+			for (String column : columns) {
+				parameters.append(column + " = ?");
+				params[count] = body.get(column).isJsonNull() ? null : body.get(column).getAsString();
+
+				if (count < (columns.size() - 1)) {
+					parameters.append(", ");
+				}
+
+				count++;
+			}
+
+			if (whereFlag) {
+				Set<String> whereColumns = where.keySet();
+				int whereCount = 0;
+				for (String column : whereColumns) {
+					whereParameters.append(column + " = ?");
+					params[count] = where.get(column).isJsonNull() ? null : where.get(column).getAsString();
+
+					if (whereCount < (whereColumns.size() - 1)) {
+						whereParameters.append(" AND ");
+					}
+
+					count++;
+					whereCount++;
+				}
+
+				query = query + parameters.toString() + " WHERE " + whereParameters.toString();
+			} else {
+				params[count] = primaryKey;
+
+				query = query + parameters.toString() + " WHERE " + pkColumn + " = ?";
+			}
+			int rowAffected = executeDMLQueryOnPool(query, params);
+
+			if (rowAffected > 0)
+				return primaryKey;
+			else
+				return rowAffected;
+		} else if (operation.equals("DELETE")) {
+			Long primaryKey = 0L;
+
+			if (body.has(pkColumn)) {
+				primaryKey = body.get(pkColumn).getAsLong();
+			}
+
+			String query = "DELETE FROM " + tableName + " WHERE ";
+			Object[] params = null;
+			if (whereFlag) {
+				StringBuilder whereParameters = new StringBuilder();
+				Set<String> whereColumns = where.keySet();
+				params = new Object[whereColumns.size()];
+				int whereCount = 0;
+
+				for (String column : whereColumns) {
+					whereParameters.append(column + " = ?");
+					params[whereCount] = where.get(column).isJsonNull() ? null : where.get(column).getAsString();
+
+					if (whereCount < (whereColumns.size() - 1)) {
+						whereParameters.append(" AND ");
+					}
+
+					whereCount++;
+				}
+
+				query = query + whereParameters.toString();
+			} else {
+				params = new Object[] {primaryKey};
+
+				query = query + pkColumn + " = ?";
+			}
+
+			int rowAffected = executeDMLQueryOnPool(query, params);
+
+			if (rowAffected > 0)
+				return primaryKey;
+			else
+				return rowAffected;
+		}
+
+		return 0;
+	}
+
+	public long executeDMLToGetId(String query, Object[] params, String primaryKeyField) {
+		KeyHolder keyHolder = new GeneratedKeyHolder();
+		jdbcTemplate.update(
+			new PreparedStatementCreator() {
+				public PreparedStatement createPreparedStatement(Connection connection) throws SQLException {
+					PreparedStatement ps = connection.prepareStatement(query, new String[] {primaryKeyField});
+					for (int i = 0; i < params.length; i++)
+						ps.setObject(i + 1, params[i]);
+
+					return ps;
+				}
+			},
+			keyHolder);
+
+		return keyHolder.getKey().longValue();
+	}
+	
+	// DML operation on single or multilevel entities
+	public long executeDML(JsonObject body, String operation) {
+		long id = 0;
+		long dtlId = 0;
+		Set<String> tables = body.keySet();
+		if (tables.size() > 0 && tables.size() == 1) {
+			// First level
+			for (String table : tables) {
+				JsonObject data = body.getAsJsonObject(table);
+				Map<String, JsonArray> details = new HashMap<>();
+				
+				Set<String> keys = data.keySet();
+				for (String key : keys) {
+					if (data.get(key).isJsonArray()) {
+						details.put(key, data.getAsJsonArray(key).deepCopy());
+						data.remove(key);
+					}
+				}
+				
+				if (operation.equals("DELETE")) {
+					id = data.get(table + "id").getAsLong();
+				} else {
+					id = executeCustomDML(table, table + "id", data, null, operation);
+				}
+				
+				// Second level
+				Set<String> detailset = details.keySet();
+				for (String detail : detailset) {
+					for (JsonElement dtlelement : details.get(detail)) {
+						data = dtlelement.getAsJsonObject();
+						if (data.has(table + "id"))
+							data.addProperty(table + "id", id);
+						Map<String, JsonArray> childs = new HashMap<>();
+						
+						keys = data.keySet();
+						for (String key : keys) {
+							if (data.get(key).isJsonArray()) {
+								childs.put(key, data.getAsJsonArray(key).deepCopy());
+								data.remove(key);
+							}
+						}
+						
+						if (operation.equals("DELETE")) {
+							dtlId = data.get(detail + "id").getAsLong();
+						} else {
+							dtlId = executeCustomDML(detail, detail + "id", data, null, operation);
+						}
+						
+						// Third level
+						Set<String> childset = childs.keySet();
+						for (String child : childset) {
+							if (operation.equals("DELETE")) {
+								JsonObject where = new JsonObject();
+								where.addProperty(detail + "id", dtlId);
+								
+								executeCustomDML(child, child + "id", data, where, operation);
+							} else {
+								for (JsonElement childelement : childs.get(child)) {
+									data = childelement.getAsJsonObject();
+									if (data.has(detail + "id"))
+										data.addProperty(detail + "id", dtlId);
+									
+									keys = data.keySet();
+									for (String key : keys) {
+										if (data.get(key).isJsonArray()) {
+											data.remove(key);
+										}
+									}
+									
+									executeCustomDML(child, child + "id", data, null, operation);
+								}
+							}
+						} // End third level
+					}
+					
+					if (operation.equals("DELETE")) {
+						JsonObject where = new JsonObject();
+						where.addProperty(table + "id", id);
+						
+						executeCustomDML(detail, detail + "id", data, where, operation);
+					}
+				} // End second level
+				
+				if (operation.equals("DELETE")) {
+					JsonObject where = new JsonObject();
+					where.addProperty(table + "id", id);
+					
+					executeCustomDML(table, table + "id", data, where, operation);
+				}
+			} // End first level
+		}
+		
+		return id;
+	}
+
+	// Read file
+	public static byte[] readFileBytes(String filepath) throws IOException {
+		Path path = Paths.get(filepath);
+		return Files.readAllBytes(path);
+	}
+
+	// Get webapps folder path
+	public static String checkFolder(String path) {
+		File folder = new File(path);
+
+		URL location = ConnectionUtility.class.getProtectionDomain().getCodeSource().getLocation();
+		String folderPath = location.getFile();
+
+		if (folderPath.contains("enam-pop-controller-1.0")) {
+			path = folderPath.substring(0, folderPath.indexOf("enam-pop-controller-1.0")) + path;
+			folder = new File(path);
+		}
+
+		if (!folder.exists()) {
+			folder.mkdirs();
+		}
+
+		return folder.getAbsolutePath() + "/";
+	}
+	
+	public synchronized String onLotProcess(String orgId, String oprId, java.sql.Date tranDate) {
+
+		JsonObject response = new JsonObject();
+		List<SqlParameter> paramList = new ArrayList<>();
+
+		SqlParameter orgIdParam = new SqlParameter(Types.VARCHAR);
+		SqlParameter oprIdParam = new SqlParameter(Types.VARCHAR);
+		SqlParameter rightIdParam = new SqlParameter(Types.DATE);
+		SqlOutParameter lotId = new SqlOutParameter("lotId", Types.VARCHAR);
+		SqlOutParameter lotCode = new SqlOutParameter("lotCode", Types.VARCHAR);
+
+		paramList = new ArrayList<>();
+		paramList.add(orgIdParam);
+		paramList.add(oprIdParam);
+		paramList.add(rightIdParam);
+		paramList.add(lotCode);
+		paramList.add(lotId);
+
+		final String procedureCall = "{call getLotNumber(?,?,?,?,?)}";
+		try {
+			Map<String, Object> resultMap = jdbcTemplate.call(new CallableStatementCreator() {
+
+				@Override
+				public CallableStatement createCallableStatement(Connection connection)
+				throws SQLException {
+
+					CallableStatement callableStatement = connection.prepareCall(procedureCall);
+					callableStatement.setString(1, orgId);
+					callableStatement.setString(2, oprId);
+					callableStatement.setDate(3, tranDate);
+					callableStatement.registerOutParameter(4, Types.VARCHAR);
+		            callableStatement.registerOutParameter(5, Types.VARCHAR);
+					return callableStatement; 
+					}
+			}, paramList);
+			response.addProperty("code", 200);
+			response.addProperty("status", "Success");
+			response.addProperty("lotId", resultMap.get("lotId") == null ? "0" : resultMap.get("lotId").toString());
+			response.addProperty("lotCode", resultMap.get("lotCode") == null ? "0" : resultMap.get("lotCode").toString());
+		} catch (Exception ex) {
+			throw new ServerSideException(ex.getMessage());
+		}
+
+		return response.toString();
+  }
+
+
+
+}
